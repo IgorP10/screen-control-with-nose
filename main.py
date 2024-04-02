@@ -2,88 +2,91 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import pyautogui
+import logging
 
-# Inicialização do MediaPipe Face Mesh e Hands
-mp_face_mesh = mp.solutions.face_mesh
-mp_hands = mp.solutions.hands
+# Configuration settings
+FRAMES_THRESHOLD = 10
+THRESHOLD_RATIO = 0.1
 
-# Contador para integração temporal
-frames_close_to_nose = 0
-# Número de frames consecutivos para considerar cutucando o nariz
-frames_threshold = 10
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
 
-is_video_paused = False
+def init_mediapipe():
+    """Initializes and returns necessary MediaPipe solutions."""
+    face_mesh = mp.solutions.face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    hands = mp.solutions.hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+    return face_mesh, hands
 
 def calculate_distance_3d(point1, point2):
-    """Calcula a distância euclidiana entre dois pontos no espaço 3D."""
+    """Calculates the Euclidean distance between two 3D points."""
     return np.sqrt((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2 + (point1.z - point2.z) ** 2)
 
-def is_hand_close_to_nose(hand_landmarks, face_landmarks, threshold_ratio):
-    """Verifica se a mão está próxima ao nariz."""
-    # Landmarks laterais do rosto para referência do limiar
-    face_landmark_left = face_landmarks.landmark[234]
-    face_landmark_right = face_landmarks.landmark[454]
-    face_width = calculate_distance_3d(face_landmark_left, face_landmark_right)
+def is_hand_close_to_nose(hand_landmarks, face_landmarks, face_width):
+    """Checks if the hand is close to the nose based on landmark proximity."""
+    nose_landmark = face_landmarks.landmark[4]  # Landmark for the tip of the nose
+    finger_tip_landmark = hand_landmarks.landmark[8]  # Landmark for the tip of the index finger
     
-    # Landmark 4 para a ponta do nariz no MediaPipe Face Mesh
-    nose_landmark = face_landmarks.landmark[4]
-
-    # Landmark 8 para a ponta do dedo indicador no MediaPipe Hands
-    finger_tip_landmark = hand_landmarks.landmark[8]
-
-    # Cálculo da distância entre a ponta do dedo e a ponta do nariz
     distance = calculate_distance_3d(nose_landmark, finger_tip_landmark)
-
-    # O limiar é uma fração da largura do rosto
-    threshold = face_width * threshold_ratio
+    threshold = face_width * THRESHOLD_RATIO
     return distance < threshold
 
-# Inicialização da câmera
-cap = cv2.VideoCapture(0)
+def process_image(image, face_mesh, hands, frames_close_to_nose, is_video_paused):
+    """Processes the image and updates counters and states as needed."""
+    image = cv2.flip(image, 1)  # Mirror the image
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_rgb.flags.writeable = False
+    results_face = face_mesh.process(image_rgb)
+    results_hand = hands.process(image_rgb)
 
-with mp_face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5) as face_mesh, mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5) as hands:
-    while cap.isOpened():
-        success, image = cap.read()
-        if not success:
-            print("Ignoring empty camera frame.")
-            continue
+    if results_hand.multi_hand_landmarks and results_face.multi_face_landmarks:
+        for hand_landmarks in results_hand.multi_hand_landmarks:
+            for face_landmarks in results_face.multi_face_landmarks:
+                face_landmark_left = face_landmarks.landmark[234]
+                face_landmark_right = face_landmarks.landmark[454]
+                face_width = calculate_distance_3d(face_landmark_left, face_landmark_right)
+                
+                if is_hand_close_to_nose(hand_landmarks, face_landmarks, face_width):
+                    frames_close_to_nose += 1
+                    if frames_close_to_nose > FRAMES_THRESHOLD and not is_video_paused:
+                        pyautogui.press('space')
+                        is_video_paused = True
+                        logging.info("Video paused")
+                else:
+                    if frames_close_to_nose > 0:
+                        frames_close_to_nose -= 1
+                    if frames_close_to_nose == 0 and is_video_paused:
+                        pyautogui.press('space')
+                        is_video_paused = False
+                        logging.info("Video playing")
+    
+    return image, frames_close_to_nose, is_video_paused
 
-        # Inverter a imagem horizontalmente para não ficar como espelho.
-        image = cv2.flip(image, 1)
+def main():
+    logging.info("Starting application...")
+    frames_close_to_nose = 0
+    is_video_paused = False
+    face_mesh, hands = init_mediapipe()
+    
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        logging.error("Failed to open camera.")
+        return
 
-        # Converter a imagem de BGR para RGB.
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image.flags.writeable = False
+    try:
+        while cap.isOpened():
+            success, image = cap.read()
+            if not success:
+                logging.info("Ignoring empty camera frame.")
+                continue
 
-        # Processar as detecções
-        results_face = face_mesh.process(image)
-        results_hand = hands.process(image)
-        image.flags.writeable = True
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            image, frames_close_to_nose, is_video_paused = process_image(image, face_mesh, hands, frames_close_to_nose, is_video_paused)
+            cv2.imshow('MediaPipe Face Mesh and Hands', image)
 
-        # Limiar baseado na proporção da largura do rosto
-        threshold_ratio = 0.1
+            if cv2.waitKey(5) & 0xFF == ord('q'):
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
-        # Verifica se a mão está próxima ao nariz
-        if results_hand.multi_hand_landmarks and results_face.multi_face_landmarks:
-            for hand_landmarks in results_hand.multi_hand_landmarks:
-                for face_landmarks in results_face.multi_face_landmarks:
-                    if is_hand_close_to_nose(hand_landmarks, face_landmarks, threshold_ratio):
-                        frames_close_to_nose += 1
-                        if frames_close_to_nose > frames_threshold and not is_video_paused:
-                            pyautogui.press('space')  # Pausa o vídeo se estiver tocando
-                            is_video_paused = True
-                            print("Vídeo pausado")
-                    else:
-                        frames_close_to_nose = max(0, frames_close_to_nose - 1)  # Decremento para filtrar ruídos temporais
-                        if frames_close_to_nose == 0 and is_video_paused:
-                            pyautogui.press('space')  # Dá play no vídeo se estiver pausado
-                            is_video_paused = False
-                            print("Vídeo tocando")
-        
-        cv2.imshow('MediaPipe Face Mesh and Hands', image)
-        if cv2.waitKey(5) & 0xFF == ord('q'):
-            break
-
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
