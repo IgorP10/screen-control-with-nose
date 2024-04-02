@@ -26,7 +26,7 @@ map-landmarks-in-face.py: Utilitário para marcar e visualizar as landmarks do r
 requirements.txt: Lista todas as dependências necessárias para executar os scripts.
 
 # Como Executar
-## Detecção em Tempo Real
+### Detecção em Tempo Real
 Para iniciar a detecção em tempo real, execute o script main.py. Certifique-se de que sua webcam esteja conectada e funcionando.
 
 ```sh
