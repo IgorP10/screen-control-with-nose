@@ -23,7 +23,7 @@ Este projeto usa a biblioteca MediaPipe para detectar quando uma pessoa está to
 It is recommended to use a virtual environment to install and run this project.
 
 ```sh
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
@@ -76,7 +76,7 @@ Contributions are welcome! If you have improvements or corrections, please fork 
 Recomenda-se usar um ambiente virtual para instalar e executar este projeto.
 
 ```sh
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate  # No Windows use `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
